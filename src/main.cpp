@@ -1,58 +1,54 @@
-#include "chat.h"
-#include "Adafruit_PWMServoDriver.h"
-#include "SD.h"
-#include "SPI.h"
-#include "FS.h"
+#include <WiFi.h>
+#include <HTTPClient.h>
+#include <ArduinoJson.h>
 
-// Instantiate the PWM servo driver
-Adafruit_PWMServoDriver pwm = Adafruit_PWMServoDriver();
+const char* ssid = "YourSSID";
+const char* password = "YourPassword";
+const char* serverName = "https://speech.googleapis.com/v1/speech:recognize?key=YOUR_API_KEY";
 
-// Pins for I2S
-#define SD_CS          5
-#define SPI_MOSI      23
-#define SPI_MISO      19
-#define SPI_SCK       18
-#define I2S_DOUT      25
-#define I2S_BCLK      27
-#define I2S_LRC       26
-
-Audio audio;
-Ticker ticker;
-char chbuf[100];
-
-void tckr1s() {
-    // Example function to trigger voice playback at specific intervals
-    // Implement your logic here if needed
+void setup() {
+  Serial.begin(115200);
+  WiFi.begin(ssid, password);
+  while (WiFi.status() != WL_CONNECTED) {
+    delay(500);
+    Serial.print(".");
+  }
+  Serial.println("Connected to WiFi");
 }
 
-void initChat() {
-    // Initialize PWM driver
-    pwm.begin();
-    pwm.setPWMFreq(60);  // Set frequency to 60 Hz
+void sendAudioToGoogleCloud(byte* audioData, int length) {
+  HTTPClient http;
+  http.begin(serverName);
+  http.addHeader("Content-Type", "application/json");
 
-    // Initialize SPI and SD card for audio playback
-    SPI.begin(SPI_SCK, SPI_MISO, SPI_MOSI);
-    if (!SD.begin(SD_CS)) {
-        Serial.println("SD Card initialization failed!");
-        return;
-    }
-    audio.setPinout(I2S_BCLK, I2S_LRC, I2S_DOUT);
-    audio.setVolume(10); // 0...21
-    ticker.attach(1, tckr1s);
+  DynamicJsonDocument doc(1024);
+  String base64Audio = base64::encode(audioData, length);
+  doc["audio"]["content"] = base64Audio;
+  doc["config"]["encoding"] = "LINEAR16";
+  doc["config"]["sampleRateHertz"] = 16000;
+  doc["config"]["languageCode"] = "en-US";
 
-    // Example: set initial PWM values
-    pwm.setPWM(0, 0, 300);
+  String requestBody;
+  serializeJson(doc, requestBody);
+
+  int httpResponseCode = http.POST(requestBody);
+  if (httpResponseCode > 0) {
+    String response = http.getString();
+    Serial.println(response);
+  } else {
+    Serial.print("Error on sending POST: ");
+    Serial.println(httpResponseCode);
+  }
+  http.end();
 }
 
-void handleAudioLoop() {
-    audio.loop();
-}
+void loop() {
+  // Assuming `audioData` and `length` are filled elsewhere in your code after recording
+  byte* audioData; // Your audio data
+  int length;      // Length of the audio data
 
-void playVoiceCommand(const char* fileName) {
-    sprintf(chbuf, "/voice_time/%s.mp3", fileName);
-    audio.connecttoFS(SD, chbuf);
-}
+  // Call this function when you have audio data ready to send
+  sendAudioToGoogleCloud(audioData, length);
 
-void audio_eof_mp3(const char *info) {
-    // Handle end of audio file playback if needed
+  delay(10000); // Delay for demonstration purposes
 }
